@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   KanbanSquare,
   LayoutDashboard,
+  Microscope,
   Search,
   Send,
   Settings,
@@ -44,6 +45,13 @@ export const NAV_ITEMS: NavItem[] = [
     title: "Lead Database",
     subtitle: "Search, filter, and review every company and prospect.",
     icon: Database,
+  },
+  {
+    href: "/research",
+    label: "Company Research",
+    title: "Company Research",
+    subtitle: "Company profiles, research history and evidence for every lead.",
+    icon: Microscope,
   },
   {
     href: "/imports",

@@ -8,21 +8,7 @@ import { EmptyState } from "@/components/ui/states";
 import { formatDateTime } from "@/features/imports/status";
 import { cn, formatCount } from "@/lib/utils";
 import { LEADS_PAGE_SIZE, type LeadRow } from "../queries";
-
-const VERIFICATION: Record<
-  string,
-  { label: string; tone: "neutral" | "success" | "danger" | "warning" }
-> = {
-  unverified: { label: "Unverified", tone: "neutral" },
-  verified: { label: "Verified", tone: "success" },
-  invalid: { label: "Invalid", tone: "danger" },
-  risky: { label: "Risky", tone: "warning" },
-};
-const QUALIFICATION: Record<string, string> = {
-  not_scored: "Not scored",
-  qualified: "Qualified",
-  not_qualified: "Not qualified",
-};
+import { QUALIFICATION, VERIFICATION } from "../status";
 
 export function LeadTable({
   enabled,
@@ -134,8 +120,13 @@ export function LeadTable({
                             key={lead.id}
                             className="border-t border-line align-top hover:bg-hover"
                           >
-                            <td className="max-w-56 truncate px-3 py-2 font-medium text-fg">
-                              {lead.company_name}
+                            <td className="max-w-56 truncate px-3 py-2 font-medium">
+                              <Link
+                                href={`/research/${lead.id}`}
+                                className="text-fg hover:text-accent hover:underline"
+                              >
+                                {lead.company_name}
+                              </Link>
                             </td>
                             <td className="max-w-48 truncate px-3 py-2 text-fg-secondary">
                               {lead.website ?? "—"}
