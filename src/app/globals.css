@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
+/* LeadPilot AI design tokens (spec §3). Single dark theme by design. */
+@theme {
+  --color-app: #070b12;
+  --color-sidebar: #080e17;
+  --color-card: #0b1420;
+  --color-elevated: #101b29;
+  --color-hover: #14212f;
+  --color-line: #1e3042;
+  --color-line-strong: #2a4157;
+
+  --color-fg: #f3f6fb;
+  --color-fg-secondary: #9baabd;
+  --color-fg-muted: #718198;
+
+  --color-accent: #ff7900;
+  --color-accent-hover: #ff922e;
+  --color-accent-soft: rgb(255 121 0 / 0.12);
+
+  --color-success: #26c281;
+  --color-warning: #f5b544;
+  --color-danger: #f06464;
+  --color-info: #5c9dff;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-card: 0.625rem;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background-color: var(--color-app);
+  color: var(--color-fg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Tabular figures keep KPI values aligned. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(255 121 0 / 0.35);
+}
+
+* {
+  scrollbar-color: var(--color-line) transparent;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
 }
