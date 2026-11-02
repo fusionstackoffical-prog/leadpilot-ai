@@ -189,6 +189,7 @@ export type Database = {
           id: string
           import_id: string
           issues: Json
+          lead_id: string | null
           mapped_data: Json
           normalized_city: string | null
           normalized_company_name: string | null
@@ -210,6 +211,7 @@ export type Database = {
           id?: string
           import_id: string
           issues?: Json
+          lead_id?: string | null
           mapped_data?: Json
           normalized_city?: string | null
           normalized_company_name?: string | null
@@ -231,6 +233,7 @@ export type Database = {
           id?: string
           import_id?: string
           issues?: Json
+          lead_id?: string | null
           mapped_data?: Json
           normalized_city?: string | null
           normalized_company_name?: string | null
@@ -261,11 +264,138 @@ export type Database = {
             referencedColumns: ["import_id", "id"]
           },
           {
+            foreignKeyName: "import_rows_lead_fkey"
+            columns: ["workspace_id", "lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["workspace_id", "id"]
+          },
+          {
             foreignKeyName: "import_rows_workspace_id_import_id_fkey"
             columns: ["workspace_id", "import_id"]
             isOneToOne: false
             referencedRelation: "excel_imports"
             referencedColumns: ["workspace_id", "id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          address: string | null
+          business_email: string | null
+          city: string | null
+          company_name: string
+          country: string | null
+          created_at: string
+          decision_maker_name: string | null
+          decision_maker_title: string | null
+          discovered_at: string
+          id: string
+          lead_score: number | null
+          lead_score_reason: string | null
+          normalized_city: string | null
+          normalized_company_name: string | null
+          normalized_domain: string | null
+          normalized_email: string | null
+          normalized_phone: string | null
+          normalized_state: string | null
+          notes: string | null
+          phone: string | null
+          postal_code: string | null
+          qualification_status: string
+          services: string | null
+          source_import_id: string | null
+          source_name: string | null
+          source_url: string | null
+          state: string | null
+          suppressed: boolean
+          updated_at: string
+          verification_status: string
+          website: string | null
+          workspace_id: string
+        }
+        Insert: {
+          address?: string | null
+          business_email?: string | null
+          city?: string | null
+          company_name: string
+          country?: string | null
+          created_at?: string
+          decision_maker_name?: string | null
+          decision_maker_title?: string | null
+          discovered_at?: string
+          id?: string
+          lead_score?: number | null
+          lead_score_reason?: string | null
+          normalized_city?: string | null
+          normalized_company_name?: string | null
+          normalized_domain?: string | null
+          normalized_email?: string | null
+          normalized_phone?: string | null
+          normalized_state?: string | null
+          notes?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          qualification_status?: string
+          services?: string | null
+          source_import_id?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          state?: string | null
+          suppressed?: boolean
+          updated_at?: string
+          verification_status?: string
+          website?: string | null
+          workspace_id: string
+        }
+        Update: {
+          address?: string | null
+          business_email?: string | null
+          city?: string | null
+          company_name?: string
+          country?: string | null
+          created_at?: string
+          decision_maker_name?: string | null
+          decision_maker_title?: string | null
+          discovered_at?: string
+          id?: string
+          lead_score?: number | null
+          lead_score_reason?: string | null
+          normalized_city?: string | null
+          normalized_company_name?: string | null
+          normalized_domain?: string | null
+          normalized_email?: string | null
+          normalized_phone?: string | null
+          normalized_state?: string | null
+          notes?: string | null
+          phone?: string | null
+          postal_code?: string | null
+          qualification_status?: string
+          services?: string | null
+          source_import_id?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          state?: string | null
+          suppressed?: boolean
+          updated_at?: string
+          verification_status?: string
+          website?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_source_import_id_fkey"
+            columns: ["source_import_id"]
+            isOneToOne: false
+            referencedRelation: "excel_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -398,6 +528,16 @@ export type Database = {
         Returns: string
       }
       is_anonymous_user: { Args: never; Returns: boolean }
+      lead_overview_metrics: {
+        Args: { p_from: string; p_to: string; p_workspace_id: string }
+        Returns: {
+          new_leads: number
+          qualified_leads: number
+          total_leads: number
+          unique_companies: number
+          verified_contacts: number
+        }[]
+      }
       refresh_excel_import: {
         Args: { p_import_id: string }
         Returns: {
