@@ -3,6 +3,7 @@
  * should treat them (retry later or give up). Messages are written for operators and never
  * contain secrets or request headers.
  */
+import { ExtractionError, type ExtractionErrorCode } from "../extract/errors.ts";
 
 export type FetchErrorCode =
   | "invalid_url"
@@ -15,6 +16,7 @@ export type FetchErrorCode =
   | "tls_error"
   | "too_many_redirects"
   | "redirect_blocked"
+  | "outside_boundary"
   | "robots_disallowed"
   | "robots_unavailable"
   | "http_status"
@@ -35,6 +37,7 @@ const RETRYABLE_BY_DEFAULT: Record<FetchErrorCode, boolean> = {
   tls_error: false,
   too_many_redirects: false,
   redirect_blocked: false,
+  outside_boundary: false,
   robots_disallowed: false,
   robots_unavailable: true,
   http_status: false,
@@ -184,8 +187,24 @@ export function toFetchError(error: unknown, url?: string): ResearchFetchError {
   });
 }
 
-/** What the worker records for a failed fetch. */
-export function describeFailure(error: unknown) {
+/**
+ * What the worker records for a failed research run. Extraction failures keep their own code
+ * and are never retried; everything else is classified as a fetch failure.
+ */
+export function describeFailure(error: unknown): {
+  code: FetchErrorCode | ExtractionErrorCode;
+  message: string;
+  retryable: boolean;
+  retryAfterMs: number | undefined;
+} {
+  if (error instanceof ExtractionError) {
+    return {
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      retryAfterMs: undefined,
+    };
+  }
   const e = toFetchError(error);
   return { code: e.code, message: e.message, retryable: e.retryable, retryAfterMs: e.retryAfterMs };
 }

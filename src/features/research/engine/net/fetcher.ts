@@ -6,9 +6,19 @@ import { ROBOTS_MAX_BYTES, RobotsCache } from "./robots.ts";
 import { safeFetch, type SafeFetchResult } from "./safe-fetch.ts";
 import type { Transport } from "./transport.ts";
 
+export type FetchPageOptions = {
+  signal?: AbortSignal;
+  /**
+   * Which hosts this fetch may reach. Checked on every hop (the first request and each
+   * redirect) before robots.txt is read and before any request is made, so a redirect that
+   * leaves the boundary never contacts the other host at all.
+   */
+  boundary?: (url: URL) => boolean;
+};
+
 export type ResearchFetcher = {
   /** Fetches a page, obeying robots.txt and per-host rate limits on every hop. */
-  fetchPage: (url: string | URL, options?: { signal?: AbortSignal }) => Promise<SafeFetchResult>;
+  fetchPage: (url: string | URL, options?: FetchPageOptions) => Promise<SafeFetchResult>;
   robots: RobotsCache;
   limiter: HostRateLimiter;
 };
@@ -57,12 +67,19 @@ export function createResearchFetcher({
       ),
   });
 
-  async function fetchPage(url: string | URL, options: { signal?: AbortSignal } = {}) {
+  async function fetchPage(url: string | URL, options: FetchPageOptions = {}) {
     return safeFetch(url, {
       ...common,
       maxBytes: config.maxPageBytes,
       signal: options.signal,
       hop: async (target, run) => {
+        if (options.boundary && !options.boundary(target)) {
+          throw new ResearchFetchError(
+            "outside_boundary",
+            `${target.host} is outside the website being researched and was not contacted`,
+            { url: target.href },
+          );
+        }
         const decision = await robots.check(target);
         if (!decision.allowed) {
           if (decision.reason === "unavailable") {
