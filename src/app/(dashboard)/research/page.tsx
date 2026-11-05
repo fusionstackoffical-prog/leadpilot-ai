@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ResearchList } from "@/features/research/components/research-list";
 import { listResearchCompanies } from "@/features/research/queries";
+import { getResearchStatuses } from "@/features/research/results-queries";
+import { getResearchSetup } from "@/features/research/setup";
 import { requireWorkspaceContext } from "@/features/workspace/queries";
 
 export const metadata: Metadata = { title: "Company Research" };
@@ -12,5 +14,21 @@ export default async function ResearchPage({ searchParams }: PageProps<"/researc
   const page = Math.max(1, Number.parseInt(String(params.page ?? "1"), 10) || 1);
   const result = await listResearchCompanies(workspace.id, { q, page });
 
-  return <ResearchList {...result} q={q} page={page} />;
+  // One query for the whole page of companies (real status, never a placeholder).
+  const states = await getResearchStatuses(
+    workspace.id,
+    result.companies.map((company) => company.id),
+  );
+  const setup = getResearchSetup();
+
+  return (
+    <ResearchList
+      {...result}
+      q={q}
+      page={page}
+      states={states}
+      setupMissing={setup.ready ? null : setup.missing}
+      timezone={workspace.timezone}
+    />
+  );
 }
