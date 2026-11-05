@@ -21,6 +21,10 @@ Copy `.env.example` to `.env.local` and fill in values from **Supabase → Proje
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser | Anon/publishable key (RLS-protected) |
 | `NEXT_PUBLIC_SITE_URL` | Browser | App URL used in auth email links (e.g. `http://localhost:3000`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server only** | Bypasses RLS. Never prefix with `NEXT_PUBLIC_`. |
+| `RESEARCH_BOT_CONTACT_URL` | **Server only** | Company research only: public bot-information page (see [Company research worker](#company-research-worker)). |
+| `RESEARCH_WORKER_SECRET` | **Server only** | Company research only: protects the worker endpoint. You create it. |
+
+The two research variables are optional for the rest of the app: without them every page works as before and the research worker simply reports that it is not configured.
 
 `NEXT_PUBLIC_*` values are inlined at **build** time. Set them before `npm run build` (on Vercel, add them in Project Settings → Environment Variables before deploying).
 
@@ -91,6 +95,82 @@ npm run db:types  # after any migration: regenerates src/types/database.ts
 - Wrong password: "Incorrect email or password." and the email field stays filled.
 - Signed in: all 11 sidebar pages load, and `/login` redirects to Overview.
 - User menu → **Sign out** → `/login`; dashboard URLs redirect to login again.
+
+## Company research worker
+
+LeadPilot is a private, single-owner tool. The research worker is a protected endpoint, `POST /api/research/worker`, that you call yourself while developing locally. There is no scheduler and no public access; a scheduler is a later decision that depends on where the app is finally hosted. Calling the worker does nothing unless research runs have been queued, and nothing in the app queues them yet, so today a call reports `claimed: 0`.
+
+Each call claims up to 3 queued research runs, fetches each company's own public website through the secure fetcher (robots.txt, rate limits, private-network blocking), stores the page text in the private `research-sources` bucket, saves the findings, and tidies up old text. It never starts research on its own and never touches imported lead values.
+
+### 1. `RESEARCH_BOT_CONTACT_URL` (you must provide this)
+
+Every request the bot makes identifies itself as `LeadPilotResearchBot/1.0 (+<this URL>)`, so the owner of any website it visits can find out who is behind it. The worker refuses to run (and leaves queued jobs untouched) until this is set to a valid URL.
+
+It must be:
+
+- a **public `https://` page on a domain you control**, with a real domain name (not `localhost` or an IP address), no username or password, and no spaces or parentheses;
+- reachable by anyone on the internet, without signing in.
+
+It is only a bot-information page. It does **not** make LeadPilot public and must not link to the dashboard. A page on your agency's own website is the natural place. It should say:
+
+- who operates `LeadPilotResearchBot` (your agency) and that it is a private tool used for your own business research;
+- what it does: it reads a handful of public pages from a company's own website, and obeys robots.txt (user-agent token `LeadPilotResearchBot`);
+- how a website owner can ask to be excluded or get in touch (an address you choose to publish).
+
+Put the URL in `.env.local` yourself. Nothing in the project supplies a default.
+
+### 2. `RESEARCH_WORKER_SECRET` (you generate this)
+
+The secret is a long random string that only you know. Generate one on your machine:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Copy the output into `.env.local` as `RESEARCH_WORKER_SECRET=...` and restart the dev server. Requirements:
+
+- at least 32 characters;
+- **no spaces or other whitespace**, and only visible ASCII characters (letters, digits and ordinary symbols), because the secret travels in an HTTP header. The command above produces a valid value.
+
+A secret that is too short or contains whitespace is treated as not configured: the worker answers `503 worker_not_configured` and runs nothing, even for a caller who presents that exact value. Never commit the secret, share it, or prefix it with `NEXT_PUBLIC_`. If it is ever exposed, generate a new one and replace it.
+
+### 3. Calling the worker locally
+
+With the dev server running (`npm run dev`), from PowerShell in the project folder:
+
+```powershell
+$url = 'http://localhost:3000/api/research/worker'
+node -e "const { loadEnvConfig } = require('@next/env'); loadEnvConfig(process.cwd(), true); const s = process.env.RESEARCH_WORKER_SECRET; if (!s) { console.error('RESEARCH_WORKER_SECRET is not set in .env.local'); process.exit(1) } fetch(process.argv[1], { method: 'POST', headers: { Authorization: 'Bearer ' + s } }).then(async (r) => console.log(r.status, await r.text()), () => { console.error('Could not reach the worker. Is the dev server running?'); process.exit(1) })" $url
+```
+
+This reads your environment with Next.js's own loader (`@next/env`, already part of the project), exactly as `npm run dev` does. So it understands quoted values (`"..."` or `'...'`), an optional `export ` prefix, comments, and `.env.local` taking precedence over `.env`; and if the variable appears twice, it uses the same value the server uses. The secret is never printed, never stored in a shell variable or environment variable of your session, and never appears in your command history. The output is the HTTP status and the counts the worker returns. Keep the dev server reachable from your own machine only.
+
+| Status | Meaning |
+| --- | --- |
+| 200 | A batch ran. Counts of claimed, completed, retried, failed, cancelled and lease-lost runs. |
+| 401 | Missing or wrong secret. |
+| 405 | Not a `POST` request. |
+| 409 | A batch is already running; wait for it to finish. |
+| 503 `worker_not_configured` | `RESEARCH_WORKER_SECRET` is missing, shorter than 32 characters, or contains whitespace or non-ASCII characters. |
+| 503 `research_not_configured` | `RESEARCH_BOT_CONTACT_URL` or `SUPABASE_SERVICE_ROLE_KEY` is missing or invalid. Nothing was claimed. |
+| 500 `worker_error` | Unexpected failure; details are never returned. |
+
+Failed runs and their readable reasons are recorded on the run itself in the database.
+
+### What the worker prints in the terminal
+
+When something goes wrong with the worker itself (not with an individual company), one short fixed line is printed in the terminal running the dev server, prefixed with `[research-worker]`. A line never contains the secret, a request header, a URL, a company name, an identifier or any error text, only one of these fixed messages, optionally followed by a reason word such as `(transient)`:
+
+| Message | Meaning |
+| --- | --- |
+| Research is not configured on the server, so no runs were claimed. | `RESEARCH_BOT_CONTACT_URL` or the server-side database key is missing or invalid. |
+| Claiming queued research runs failed. | The database could not be reached or refused the request. |
+| A research run's final state could not be confirmed; its lease will expire. | The result of a run could not be recorded; the run is picked up again automatically. |
+| A research run stopped unexpectedly. | An internal fault affected one run; the others continued. |
+| Maintenance could not purge old source text. / Maintenance could not remove unreferenced uploads. | Housekeeping failed; it is retried on the next call. Research is not affected. |
+| A research worker batch failed. | An unexpected failure; the HTTP response was the generic `500`. |
+
+Normal outcomes (completed, retried or failed runs) and rejected requests (wrong secret, wrong method) are not printed. Per-run results and reasons are in the database, as above.
 
 ## Deploy (Vercel)
 

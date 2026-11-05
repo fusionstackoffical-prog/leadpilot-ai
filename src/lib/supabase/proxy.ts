@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isWorkerEndpoint } from "@/features/research/worker/endpoint";
 import { getPublicEnv } from "@/lib/env/public";
 import type { Database } from "@/types/database";
 
@@ -14,8 +15,14 @@ function isPublicPath(pathname: string) {
  * Real authorization happens in the data layer and in RLS, not here.
  */
 export async function updateSession(request: NextRequest) {
-  const env = getPublicEnv();
   const { pathname } = request.nextUrl;
+
+  // The research worker is called by a script, not a signed-in browser, and authenticates with
+  // its own shared secret inside the route handler. Only this exact path skips the login
+  // redirect; every other route (including any path that merely starts with it) is unchanged.
+  if (isWorkerEndpoint(pathname)) return NextResponse.next();
+
+  const env = getPublicEnv();
 
   if (!env) {
     if (pathname.startsWith("/setup")) return NextResponse.next();
