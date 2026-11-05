@@ -172,6 +172,40 @@ When something goes wrong with the worker itself (not with an individual company
 
 Normal outcomes (completed, retried or failed runs) and rejected requests (wrong secret, wrong method) are not printed. Per-run results and reasons are in the database, as above.
 
+## Using research from the dashboard (Phase 3D)
+
+**Research does not run by itself yet.** Nothing is researched until the crawler contact URL (`RESEARCH_BOT_CONTACT_URL`) and the worker secret are configured, a research run is requested from the dashboard, **and you start the worker yourself** (see "Calling the worker locally" above). There is no scheduler in this phase. The dashboard only requests research and shows what the worker saved.
+
+### Seeing research status
+
+- **Company Research** (the list) shows each company's real research status and when it was last researched. Companies that have never been researched say "Not researched" and "Never".
+- Statuses: **Not researched**, **Queued** (waiting for the worker), **Running**, **Researched**, **Researched with warnings**, **Failed** and **Cancelled**. If the latest attempt failed or was cancelled but an earlier one succeeded, the earlier results stay available and the list says so.
+- Open a company to see its full research profile. While a run is queued or running, the page refreshes itself every 8 seconds, but only while that browser tab is visible, and it stops by itself when the run finishes.
+
+### Requesting research
+
+1. Open the company's profile and select **Research company** (**Research again** if it has been researched before). The request is queued and the page says so.
+2. Run the worker. The status moves to **Running**, then to a final status.
+
+The button is disabled, with the reason written beside it, when:
+
+- **Research isn't set up.** The profile lists what is missing by name: the crawler contact page (`RESEARCH_BOT_CONTACT_URL`), the worker secret (`RESEARCH_WORKER_SECRET`) and the server-side database key (`SUPABASE_SERVICE_ROLE_KEY`). Values are never shown. While anything is missing nothing is queued, so no run can get stuck waiting for a worker that couldn't run it.
+- **The company needs a valid website.** A company with no website, or a website value that doesn't look like a public web address (an email address, an IP address, `localhost`), can't be researched. The check is made on the address alone; nothing is looked up or contacted. Fix the value in the imported data first.
+- **The company is suppressed.**
+- **A run is already queued or running.** Only one run per company can be active, and a repeated click can't create a second one.
+
+### Cancelling
+
+While a run is active, **Cancel research** appears for the person who requested it and for workspace owners and admins (it asks you to confirm). A queued run is cancelled immediately; a running one stops at its next checkpoint, usually within seconds.
+
+### Reading the results
+
+- Every item is **Confirmed** or **Unconfirmed**. A confirmed item shows the page it came from and the exact quote that supports it, and that quote was checked against the stored page text. An unconfirmed item (for example an address inside a customer testimonial) is shown for review only.
+- **Warnings** list pages that couldn't be read and similar problems. **Missing information** lists what wasn't found: "Not found in the pages researched." It is derived from what was found and never guessed.
+- **Research history** keeps every run as a dated snapshot with its status, pages read, finding counts and, for a failed run, the reason and whether a retry is permitted. Select **View results** on an earlier run to see what it saved. Earlier results are never overwritten.
+- The stored text of the pages is private and is never displayed; only the page address, title, retrieval time and the supporting quote are shown. Everything taken from a company's website is shown as plain text.
+- AI observations, challenges and opportunities stay empty: AI analysis is not built yet.
+
 ## Deploy (Vercel)
 
 1. Import the repository in Vercel (framework: Next.js).

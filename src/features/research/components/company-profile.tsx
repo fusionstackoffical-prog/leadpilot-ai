@@ -5,17 +5,20 @@ import {
   ClipboardList,
   FileSpreadsheet,
   FileText,
+  FileSearch,
   Gauge,
   Globe,
   History,
   Lightbulb,
+  ListChecks,
+  MapPin,
   Microscope,
+  Package,
   Phone,
   Send,
   Share2,
   Target,
   Wrench,
-  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -27,59 +30,16 @@ import { EmptyState } from "@/components/ui/states";
 import { formatDateTime } from "@/features/imports/status";
 import { QUALIFICATION, VERIFICATION } from "@/features/leads/status";
 import { displayHost, safeExternalUrl } from "../links";
+import { emptyResultsText, emptySections } from "../presenter";
 import type { CompanyProfileLead, ImportProvenance } from "../queries";
-
-/** What kind of information a value or section holds (docs/COMPANY_RESEARCH_SPEC.md §3). */
-type Provenance = "imported" | "confirmed" | "ai";
-
-const PROVENANCE: Record<Provenance, { label: string; tone: "neutral" | "success" | "info" }> = {
-  imported: { label: "Imported · unverified", tone: "neutral" },
-  // Describes what the section accepts, so it stays neutral: it must never read as if the
-  // values currently shown (e.g. an imported website) were confirmed.
-  confirmed: { label: "Source-backed facts only", tone: "neutral" },
-  ai: { label: "AI assessment · not fact", tone: "info" },
-};
-
-function ProvenanceBadge({ kind }: { kind: Provenance }) {
-  return <Badge tone={PROVENANCE[kind].tone}>{PROVENANCE[kind].label}</Badge>;
-}
-
-function Section({
-  title,
-  description,
-  icon: Icon,
-  kind,
-  children,
-}: {
-  title: string;
-  description?: string;
-  icon: LucideIcon;
-  kind?: Provenance;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="flex flex-col">
-      <CardHeader
-        title={title}
-        description={description}
-        icon={<Icon className="size-4" aria-hidden />}
-        actions={kind ? <ProvenanceBadge kind={kind} /> : undefined}
-      />
-      <CardBody className="flex-1">{children}</CardBody>
-    </Card>
-  );
-}
-
-function NotResearched({ what }: { what: string }) {
-  return (
-    <EmptyState
-      compact
-      icon={Microscope}
-      title="Not researched yet"
-      description={`${what} will appear here after this company is researched. Nothing has been looked up or inferred.`}
-    />
-  );
-}
+import type { ResearchOverview } from "../results-queries";
+import { describeCompanyState, describeRun, RUN_STATUS } from "../status";
+import { ResearchControls } from "./research-controls";
+import { ResearchHistory } from "./research-history";
+import { AssessmentList, FindingList, PagesResearched, ResearchNotes } from "./research-results";
+import { Section } from "./section";
+import { CompanyStatusBadge } from "./status-badge";
+import { RunStatusPoller } from "./run-status-poller";
 
 function NotBuilt({ module }: { module: string }) {
   return (
@@ -91,23 +51,77 @@ function NotBuilt({ module }: { module: string }) {
   );
 }
 
+/** A labelled group inside a section. */
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="mt-4 first:mt-0">
+      <p className="mb-1.5 text-[11px] font-medium tracking-wide text-fg-muted uppercase">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
 const dash = (value: string | null) => value?.trim() || "—";
+
+/** Everything the research parts of the profile need, prepared on the server. */
+export type ResearchProfileData = {
+  overview: ResearchOverview;
+  /** What research still needs on the server (names only), or null when it is set up. */
+  setupMissing: string[] | null;
+  /** Why this company can't be researched, or null when it can. */
+  ineligibleReason: string | null;
+  /** Idempotency key for this page render. */
+  requestKey: string;
+};
 
 export function CompanyProfile({
   lead,
   provenance,
   timezone,
+  research,
 }: {
   lead: CompanyProfileLead;
   provenance: ImportProvenance[];
   timezone: string;
+  research: ResearchProfileData;
 }) {
   const site = safeExternalUrl(lead.website);
   const verification = VERIFICATION[lead.verification_status] ?? VERIFICATION.unverified;
   const location = [lead.city, lead.state].filter(Boolean).join(", ");
 
+  const { overview, setupMissing, ineligibleReason, requestKey } = research;
+  const { state, selected, runs, activeRun } = overview;
+  const status = describeCompanyState(state);
+  const sections = selected?.sections ?? emptySections();
+  const empty = emptyResultsText({ runStatus: selected?.run.status ?? null, active: state.active });
+  const showsFindings =
+    selected !== null && ["completed", "completed_with_warnings"].includes(selected.run.status);
+  const latestFinished = runs.find((r) => r.id === state.latestFinishedRunId) ?? null;
+  const latestInfo =
+    latestFinished && (state.status === "failed" || state.status === "cancelled")
+      ? describeRun({
+          status: latestFinished.status,
+          attempts: latestFinished.attempts,
+          max_attempts: latestFinished.maxAttempts,
+          error_code: latestFinished.errorCode,
+        })
+      : null;
+  const activeInfo = activeRun
+    ? describeRun({
+        status: activeRun.status,
+        attempts: activeRun.attempts,
+        max_attempts: activeRun.maxAttempts,
+        error_code: activeRun.errorCode,
+      })
+    : null;
+
   return (
     <div className="mx-auto max-w-[1600px] space-y-5">
+      {/* Refreshes the page every 8 s while a run is queued or running, and only then. */}
+      <RunStatusPoller active={state.active} />
+
       <Link href="/research" className={buttonClasses({ variant: "ghost", size: "sm" })}>
         <ArrowLeft className="size-3.5" aria-hidden />
         All companies
@@ -142,7 +156,7 @@ export function CompanyProfile({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone="neutral">Not researched</Badge>
+            <CompanyStatusBadge status={state.status} />
             <Badge tone={verification.tone}>{verification.label}</Badge>
             <Badge tone="neutral">
               {QUALIFICATION[lead.qualification_status] ?? lead.qualification_status}
@@ -152,7 +166,126 @@ export function CompanyProfile({
         </CardBody>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <Card data-testid="research-status-card">
+        <CardHeader
+          title="Research"
+          description="Status of research on this company's own website"
+          icon={<Microscope className="size-4" aria-hidden />}
+        />
+        <CardBody className="space-y-4">
+          {/* One shrinkable column on narrow screens; from lg the controls column is as wide as its
+              content, but never wider than 20rem, so a long explanation wraps instead of taking over. */}
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_fit-content(20rem)]">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-fg" data-testid="research-headline">
+                {status.headline}
+              </p>
+              <p className="mt-0.5 max-w-2xl text-xs text-fg-secondary">{status.detail}</p>
+              <dl className="mt-3 max-w-md divide-y divide-line">
+                <StatRow
+                  label="Last researched"
+                  value={
+                    state.lastResearchedAt
+                      ? formatDateTime(state.lastResearchedAt, timezone)
+                      : "Never"
+                  }
+                />
+                {activeRun ? (
+                  <StatRow
+                    label="Current run"
+                    value={
+                      <Badge tone={RUN_STATUS[activeRun.status].tone}>
+                        {RUN_STATUS[activeRun.status].label}
+                      </Badge>
+                    }
+                  />
+                ) : null}
+                {selected && !state.active ? (
+                  <StatRow label="Pages researched" value={`${selected.run.pagesFetched}`} />
+                ) : null}
+                {selected && showsFindings ? (
+                  <StatRow
+                    label="Findings"
+                    value={`${selected.counts.confirmed} confirmed · ${selected.counts.unconfirmed} unconfirmed`}
+                  />
+                ) : null}
+              </dl>
+              {activeInfo?.detail ? (
+                <p className="mt-2 text-xs text-fg-muted">
+                  {activeInfo.detail}
+                  {activeRun?.status === "queued" &&
+                  activeRun.attempts > 0 &&
+                  activeRun.nextAttemptAt
+                    ? ` Next attempt after ${formatDateTime(activeRun.nextAttemptAt, timezone)}.`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+
+            <ResearchControls
+              leadId={lead.id}
+              requestKey={requestKey}
+              status={state.status}
+              hasResult={state.hasEarlierResult}
+              active={state.active}
+              cancellableRunId={activeRun?.canCancel ? activeRun.id : null}
+              setupMissing={setupMissing}
+              ineligibleReason={ineligibleReason}
+            />
+          </div>
+
+          {latestInfo && latestFinished ? (
+            <div
+              className="rounded-md border border-line bg-elevated/40 px-3 py-2 text-xs"
+              data-testid="latest-attempt"
+            >
+              <p className="font-medium text-fg">
+                Latest attempt (
+                {formatDateTime(latestFinished.finishedAt ?? latestFinished.queuedAt, timezone)}):{" "}
+                {latestInfo.label}
+              </p>
+              {latestInfo.detail ? (
+                <p className="mt-0.5 text-fg-secondary">{latestInfo.detail}</p>
+              ) : null}
+              {latestFinished.status === "failed" && latestFinished.errorMessage ? (
+                <p className="mt-0.5 break-words text-danger">{latestFinished.errorMessage}</p>
+              ) : null}
+              {latestInfo.retry ? (
+                <p className="mt-0.5 text-fg-muted">
+                  Retry {latestInfo.retry.permitted ? "permitted" : "not permitted"}:{" "}
+                  {latestInfo.retry.text}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {overview.requestedRunNotFound ? (
+            <p
+              role="status"
+              className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-info"
+            >
+              That research run wasn&apos;t found for this company, so the latest results are shown
+              instead.
+            </p>
+          ) : null}
+
+          {selected && !selected.isDefault ? (
+            <p
+              role="status"
+              className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-info"
+            >
+              You&apos;re viewing the run from{" "}
+              {formatDateTime(selected.run.finishedAt ?? selected.run.queuedAt, timezone)}, not the
+              latest results.{" "}
+              <Link href={`/research/${lead.id}`} className="font-medium underline">
+                Show the latest results
+              </Link>
+            </p>
+          ) : null}
+        </CardBody>
+      </Card>
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-2">
         <Section
           title="Company overview"
           description="As provided in the imported file"
@@ -176,31 +309,43 @@ export function CompanyProfile({
 
         <Section
           title="Public business contact information"
-          description="Imported values; none have been verified"
+          description="Imported values, and what the company's website says"
           icon={Phone}
-          kind="imported"
         >
-          <dl className="divide-y divide-line">
-            <StatRow label="Business email" value={dash(lead.business_email)} />
-            <StatRow label="Phone" value={dash(lead.phone)} />
-            <StatRow
-              label="Decision-maker"
-              value={
-                lead.decision_maker_name
-                  ? [lead.decision_maker_name, lead.decision_maker_title].filter(Boolean).join(", ")
-                  : "—"
-              }
-            />
-            <StatRow
-              label="Verification"
-              value={<Badge tone={verification.tone}>{verification.label}</Badge>}
-            />
-          </dl>
+          <Group title="Imported · unverified">
+            <dl className="divide-y divide-line">
+              <StatRow label="Business email" value={dash(lead.business_email)} />
+              <StatRow label="Phone" value={dash(lead.phone)} />
+              <StatRow
+                label="Decision-maker"
+                value={
+                  lead.decision_maker_name
+                    ? [lead.decision_maker_name, lead.decision_maker_title]
+                        .filter(Boolean)
+                        .join(", ")
+                    : "—"
+                }
+              />
+              <StatRow
+                label="Verification"
+                value={<Badge tone={verification.tone}>{verification.label}</Badge>}
+              />
+            </dl>
+          </Group>
+          <Group title="Business email on the website">
+            <FindingList items={sections.emails} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Phone on the website">
+            <FindingList items={sections.phones} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Contact page">
+            <FindingList items={sections.contactPages} empty={empty} timezone={timezone} />
+          </Group>
         </Section>
 
         <Section
           title="Website and business description"
-          description="Description is confirmed only when quoted from the company's own site"
+          description="Confirmed only when quoted from the company's own site"
           icon={Globe}
           kind="confirmed"
         >
@@ -223,25 +368,61 @@ export function CompanyProfile({
               }
             />
           </dl>
-          <div className="mt-3">
-            <NotResearched what="The business description" />
-          </div>
+          <Group title="Business description">
+            <FindingList items={sections.descriptions} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Company name on the website">
+            <FindingList items={sections.companyNames} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Industry">
+            <FindingList items={sections.industries} empty={empty} timezone={timezone} />
+          </Group>
+          {sections.websites.length > 0 ? (
+            <Group title="Website address">
+              <FindingList items={sections.websites} empty={empty} timezone={timezone} />
+            </Group>
+          ) : null}
         </Section>
 
         <Section
           title="Services offered"
-          description="Imported services, and services confirmed on the website"
+          description="Imported services, and services found on the website"
           icon={Wrench}
         >
-          <p className="mb-1 text-[11px] font-medium tracking-wide text-fg-muted uppercase">
-            Imported
-          </p>
-          <p className="text-sm whitespace-pre-wrap text-fg-secondary">
-            {lead.services?.trim() || "No services in the imported file."}
-          </p>
-          <div className="mt-3">
-            <NotResearched what="Services confirmed on the website" />
-          </div>
+          <Group title="Imported">
+            <p className="text-sm whitespace-pre-wrap text-fg-secondary">
+              {lead.services?.trim() || "No services in the imported file."}
+            </p>
+          </Group>
+          <Group title="Found on the website">
+            <FindingList items={sections.services} empty={empty} timezone={timezone} />
+          </Group>
+        </Section>
+
+        <Section
+          title="Products"
+          description="Products, listings or menu items found on the website"
+          icon={Package}
+          kind="confirmed"
+        >
+          <FindingList items={sections.products} empty={empty} timezone={timezone} />
+        </Section>
+
+        <Section
+          title="Address, locations and service areas"
+          description="Where the company says it is and where it works"
+          icon={MapPin}
+          kind="confirmed"
+        >
+          <Group title="Address">
+            <FindingList items={sections.addresses} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Locations">
+            <FindingList items={sections.locations} empty={empty} timezone={timezone} />
+          </Group>
+          <Group title="Service areas">
+            <FindingList items={sections.serviceAreas} empty={empty} timezone={timezone} />
+          </Group>
         </Section>
 
         <Section
@@ -250,7 +431,7 @@ export function CompanyProfile({
           icon={Share2}
           kind="confirmed"
         >
-          <NotResearched what="Social profiles" />
+          <FindingList items={sections.socialProfiles} empty={empty} timezone={timezone} />
         </Section>
 
         <Section title="Lead qualification and scoring" icon={Gauge}>
@@ -269,13 +450,57 @@ export function CompanyProfile({
         </Section>
 
         <Section title="Business observations and insights" icon={Lightbulb} kind="ai">
-          <NotResearched what="Observations" />
+          <AssessmentList
+            items={[...sections.summary, ...sections.observations]}
+            empty="AI analysis isn't available yet, so no assessment has been made."
+          />
         </Section>
 
         <Section title="Potential challenges and opportunities" icon={Target} kind="ai">
-          <NotResearched what="Challenges and opportunities" />
+          <AssessmentList
+            items={[...sections.challenges, ...sections.opportunities]}
+            empty="AI analysis isn't available yet, so no assessment has been made."
+          />
         </Section>
       </div>
+
+      {sections.other.length > 0 ? (
+        <Section
+          title="Other findings"
+          description="Stored findings this page has no dedicated section for"
+          icon={FileSearch}
+        >
+          <FindingList items={sections.other} empty={empty} timezone={timezone} />
+        </Section>
+      ) : null}
+
+      {selected ? (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-2">
+          <Section
+            title="Warnings and missing information"
+            description="What the research couldn't read or didn't find"
+            icon={ListChecks}
+          >
+            <ResearchNotes
+              warnings={selected.warnings}
+              missing={selected.missing}
+              showMissing={showsFindings}
+              notFoundText={emptyResultsText({ runStatus: selected.run.status, active: false })}
+            />
+          </Section>
+          <Section
+            title="Pages researched"
+            description="The pages this run read. Their stored text is private and is not shown."
+            icon={FileText}
+          >
+            {selected.sources.length > 0 ? (
+              <PagesResearched sources={selected.sources} timezone={timezone} />
+            ) : (
+              <p className="text-xs text-fg-muted">No pages were saved for this run.</p>
+            )}
+          </Section>
+        </div>
+      ) : null}
 
       <Section
         title="Source evidence"
@@ -324,15 +549,15 @@ export function CompanyProfile({
         description="Every research run is kept as a dated snapshot"
         icon={History}
       >
-        <EmptyState
-          compact
-          icon={History}
-          title="No research runs yet"
-          description="Automated research isn't available yet. Earlier results will never be overwritten when it is."
+        <ResearchHistory
+          runs={runs}
+          selectedRunId={selected?.run.id ?? null}
+          leadId={lead.id}
+          timezone={timezone}
         />
       </Section>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-2">
         <Section title="Proposal history" icon={FileText}>
           <NotBuilt module="proposals" />
         </Section>

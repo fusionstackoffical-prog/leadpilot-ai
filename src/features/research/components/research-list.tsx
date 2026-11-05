@@ -1,38 +1,66 @@
 import { ChevronLeft, ChevronRight, Microscope, Search } from "lucide-react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/form";
 import { EmptyState } from "@/components/ui/states";
+import { formatDateTime } from "@/features/imports/status";
 import { cn, formatCount } from "@/lib/utils";
 import { displayHost, safeExternalUrl } from "../links";
 import { RESEARCH_PAGE_SIZE, type ResearchCompany } from "../queries";
+import { NOT_RESEARCHED, type CompanyResearchState } from "../status";
+import { RunStatusPoller } from "./run-status-poller";
+import { CompanyStatusBadge } from "./status-badge";
 
 export function ResearchList({
   companies,
   total,
   q,
   page,
+  states,
+  setupMissing,
+  timezone,
 }: {
   companies: ResearchCompany[];
   total: number;
   q: string;
   page: number;
+  /** Real research status per company id (companies with no runs are "not researched"). */
+  states: Record<string, CompanyResearchState>;
+  /** What research still needs on the server (names only), or null when it is set up. */
+  setupMissing: string[] | null;
+  timezone: string;
 }) {
   const pages = Math.max(1, Math.ceil(total / RESEARCH_PAGE_SIZE));
   const href = (p: number) =>
     `/research?${new URLSearchParams({ ...(q ? { q } : {}), ...(p > 1 ? { page: String(p) } : {}) })}`;
+  const anyActive = companies.some((c) => states[c.id]?.active);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-5">
-      <p
-        role="status"
-        className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-info"
-      >
-        Automated research isn&apos;t running yet. Profiles currently show imported, unverified data
-        only; nothing here has been researched or confirmed.
-      </p>
+      {/* Refreshes every 8 s while any listed company is queued or running, and only then. */}
+      <RunStatusPoller active={anyActive} />
+      {setupMissing ? (
+        <div
+          role="status"
+          className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-info"
+        >
+          <p>
+            Research isn&apos;t set up on this server yet, so it can&apos;t be started. Statuses
+            below are real, but nothing has been researched until it is configured and the worker is
+            run. Missing: {setupMissing.join("; ")}. See docs/SETUP.md, &ldquo;Company research
+            worker&rdquo;.
+          </p>
+        </div>
+      ) : (
+        <p
+          role="status"
+          className="rounded-md border border-line bg-elevated/40 px-3 py-2 text-xs text-fg-secondary"
+        >
+          Open a company to start research on its own website. In this phase the research worker is
+          started manually, so queued research runs only when it is.
+        </p>
+      )}
       <Card>
         <CardHeader
           title="Company Research"
@@ -99,6 +127,7 @@ export function ResearchList({
                 <tbody>
                   {companies.map((company) => {
                     const site = safeExternalUrl(company.website);
+                    const state = states[company.id] ?? NOT_RESEARCHED;
                     return (
                       <tr
                         key={company.id}
@@ -130,9 +159,19 @@ export function ResearchList({
                           {[company.city, company.state].filter(Boolean).join(", ") || "—"}
                         </td>
                         <td className="px-3 py-2">
-                          <Badge tone="neutral">Not researched</Badge>
+                          <CompanyStatusBadge status={state.status} />
+                          {state.hasEarlierResult &&
+                          (state.status === "failed" || state.status === "cancelled") ? (
+                            <span className="mt-0.5 block text-[11px] text-fg-muted">
+                              Earlier results available
+                            </span>
+                          ) : null}
                         </td>
-                        <td className="px-3 py-2 text-fg-muted">Never</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-fg-muted">
+                          {state.lastResearchedAt
+                            ? formatDateTime(state.lastResearchedAt, timezone)
+                            : "Never"}
+                        </td>
                         <td className="tabular px-3 py-2 text-fg-secondary">
                           {company.lead_score ?? "Not scored"}
                         </td>
