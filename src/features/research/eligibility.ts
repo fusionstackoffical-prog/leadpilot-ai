@@ -1,3 +1,4 @@
+import { nonCompanySite } from "./engine/net/non-company-sites.ts";
 import { parseTargetUrl } from "./engine/net/target-url.ts";
 import { safeExternalUrl } from "./links.ts";
 
@@ -18,13 +19,20 @@ import { safeExternalUrl } from "./links.ts";
 
 export type Eligibility =
   | { eligible: true }
-  | { eligible: false; reason: "suppressed" | "no_website" | "invalid_website"; message: string };
+  | {
+      eligible: false;
+      reason: "suppressed" | "no_website" | "invalid_website" | "not_company_website";
+      message: string;
+    };
 
 export const NEEDS_WEBSITE_MESSAGE =
   "This company has no website. Research needs a valid website address, such as example.com.";
 
 export const INVALID_WEBSITE_MESSAGE =
   "This company's website value doesn't look like a valid public website address. Research needs an address such as example.com (not an email address, IP address or internal host).";
+
+export const NOT_COMPANY_WEBSITE_MESSAGE =
+  "This website value looks like a social media, review, search or map page, not the company's own website. Research only reads a company's own website, so replace it with the company's own web address, such as example.com.";
 
 export const SUPPRESSED_MESSAGE = "Suppressed companies can't be researched.";
 
@@ -41,11 +49,21 @@ export function researchEligibility(lead: {
 
   const href = safeExternalUrl(lead.website);
   if (href) {
+    let target: URL | undefined;
     try {
-      parseTargetUrl(href); // throws ResearchFetchError for anything the fetcher would refuse
-      return { eligible: true };
+      target = parseTargetUrl(href); // throws ResearchFetchError for anything the fetcher would refuse
     } catch {
       // fall through
+    }
+    if (target) {
+      if (nonCompanySite(target)) {
+        return {
+          eligible: false,
+          reason: "not_company_website",
+          message: NOT_COMPANY_WEBSITE_MESSAGE,
+        };
+      }
+      return { eligible: true };
     }
   }
   return { eligible: false, reason: "invalid_website", message: INVALID_WEBSITE_MESSAGE };

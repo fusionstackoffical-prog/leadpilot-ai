@@ -1,6 +1,7 @@
 import { ResearchFetchError, toFetchError } from "../net/errors.ts";
 import type { ResearchFetcher } from "../net/fetcher.ts";
 import type { SafeFetchResult } from "../net/safe-fetch.ts";
+import { nonCompanySite } from "../net/non-company-sites.ts";
 import { parseTargetUrl } from "../net/target-url.ts";
 import { ExtractionError } from "./errors.ts";
 import { decodeHtml, parsePage } from "./html.ts";
@@ -27,12 +28,21 @@ export const DEFAULT_CRAWL = { maxPages: 6, maxPerType: 2, deadlineMs: 120_000 }
 
 /**
  * Turns an imported website value into the URL to start from. A bare domain ("acme.com") is
- * assumed to be https. Everything is validated by the Phase 3A URL policy.
+ * assumed to be https. Everything is validated by the Phase 3A URL policy, and social network,
+ * search engine and map pages are refused (`invalid_url`: the value needs correcting) before any
+ * DNS lookup or request, because they are not the company's own website.
  */
 export function startUrl(website: string) {
   const raw = website.trim();
   const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw.replace(/^\/+/, "")}`;
-  return parseTargetUrl(withScheme);
+  const target = parseTargetUrl(withScheme);
+  if (nonCompanySite(target)) {
+    throw new ResearchFetchError(
+      "invalid_url",
+      "The website address is a social media, review, search or map page, not the company's own website",
+    );
+  }
+  return target;
 }
 
 function toParsed(result: SafeFetchResult, requestedUrl: string, type: PageType, now: () => Date) {
